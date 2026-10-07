@@ -14,4 +14,10 @@ public class KafkaTopicConfig {
     NewTopic analysisRequestedTopic() {
         return TopicBuilder.name(ANALYSIS_REQUESTED).partitions(1).replicas(1).build();
     }
+    public static final String REMINDER_DUE = "reminder.due";
+
+    @Bean
+    NewTopic reminderDueTopic() {
+        return TopicBuilder.name(REMINDER_DUE).partitions(1).replicas(1).build();
+    }
 }

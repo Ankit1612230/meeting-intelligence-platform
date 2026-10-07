@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body style="font-family: Arial, sans-serif; color: #222; max-width: 600px;">
+<h2 th:text="${title}">Meeting</h2>
+
+<div th:if="${!success}">
+    <p>We could not analyze this meeting. Please try again later.</p>
+</div>
+
+<div th:if="${success}">
+    <h3>Summary</h3>
+    <p th:text="${summary}"></p>
+
+    <h3>Decisions</h3>
+    <ul>
+        <li th:each="d : ${decisions}" th:text="${d}"></li>
+    </ul>
+
+    <h3>Action items</h3>
+    <ul>
+        <li th:each="a : ${actionItems}">
+            <span th:text="${a.task}"></span> -
+            <b th:text="${a.ownerEmail != null ? a.ownerEmail : 'Unassigned'}"></b>
+            <span th:if="${a.dueDate != null}" th:text="'(due ' + ${a.dueDate} + ')'"></span>
+        </li>
+    </ul>
+</div>
+
+<p style="color: #888; font-size: 12px;">Meeting Intelligence</p>
+</body>
+</html>

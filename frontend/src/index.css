@@ -1,0 +1,7 @@
+body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; }
+.card { max-width: 380px; margin: 80px auto; background: #fff; padding: 28px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.card h2 { margin-top: 0; }
+input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; font-size: 15px; }
+button { background: #2563eb; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+.error { color: #b91c1c; margin-top: 10px; }
+.success { color: #15803d; margin-top: 10px; }

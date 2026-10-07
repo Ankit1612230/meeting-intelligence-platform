@@ -1,4 +1,4 @@
-package com.meetingintellligence.notification_service;
+package com.meetingintelligence.notification_service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
