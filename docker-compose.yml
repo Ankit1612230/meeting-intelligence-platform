@@ -1,29 +1,162 @@
+# Shared settings for every Spring Boot container
+x-spring-common: &spring-common
+  restart: on-failure
+  environment: &spring-env
+    # Keep each JVM small so 6 services + Kafka + MySQL fit in Docker Desktop's memory
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:+UseSerialGC"
+    # Containers find Eureka by its compose service name, never localhost
+    EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    # Register with the container IP so the gateway can always reach the service
+    EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+
 services:
+  # ---------------- Infrastructure ----------------
   mysql:
     image: mysql:8.4
     container_name: meeting-intelligence-db
     environment:
-      MYSQL_ROOT_PASSWORD: admin123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: authdb
     ports:
-      - "3307:3306"
+      - "3307:3306"        # host access for IDE/Workbench only; remove to lock down
     volumes:
       - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   kafka:
     image: apache/kafka:3.8.0
     container_name: meeting-intelligence-kafka
     ports:
-      - "9092:9092"
+      - "9092:9092"        # host access for IDE runs; remove to lock down
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      # DOCKER = used by other containers (kafka:29092), HOST = used from your machine (localhost:9092)
+      KAFKA_LISTENERS: HOST://:9092,DOCKER://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,DOCKER://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,HOST:PLAINTEXT,DOCKER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  # ---------------- Spring Cloud ----------------
+  discovery-server:
+    build: ./discovery-server
+    container_name: meeting-intelligence-eureka
+    restart: on-failure
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:+UseSerialGC"
+    ports:
+      - "8761:8761"        # Eureka dashboard
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8761/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api-gateway:
+    <<: *spring-common
+    build: ./api-gateway
+    container_name: meeting-intelligence-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *spring-env
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+
+  # ---------------- Business services (no published ports: reached only via the gateway) ----------------
+  auth-service:
+    <<: *spring-common
+    build: ./auth-service
+    container_name: meeting-intelligence-auth
+    environment:
+      <<: *spring-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/authdb?allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  meeting-service:
+    <<: *spring-common
+    build: ./meetingservice          # folder name has no hyphen
+    container_name: meeting-intelligence-meeting
+    environment:
+      <<: *spring-env
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/meetingdb?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  analysis-service:
+    <<: *spring-common
+    build: ./analysis-service
+    container_name: meeting-intelligence-analysis
+    environment:
+      <<: *spring-env
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:29092
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  notification-service:
+    <<: *spring-common
+    build: ./notification-service
+    container_name: meeting-intelligence-notification
+    environment:
+      <<: *spring-env
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:29092
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  # ---------------- Frontend ----------------
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    container_name: meeting-intelligence-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
 
 volumes:
   mysqldata:
